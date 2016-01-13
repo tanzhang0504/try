@@ -222,7 +222,7 @@ int main(int argc, char **argv) {
 	TestSort(BubbleSort);
 //	TestSort(SelectionSort);
 //	TestSort(InsertionSort);
-//	TestSort(MergeSort);
+	TestSort(MergeSort);
 	TestSort(QuickSort);
 	TestFindMedian();
 	return 0;
