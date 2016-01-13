@@ -220,7 +220,7 @@ void TestFindMedian() {
 
 int main(int argc, char **argv) {
 	TestSort(BubbleSort);
-//	TestSort(SelectionSort);
+	TestSort(SelectionSort);
 	TestSort(InsertionSort);
 	TestSort(MergeSort);
 	TestSort(QuickSort);
