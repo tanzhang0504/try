@@ -219,7 +219,7 @@ void TestFindMedian() {
 }
 
 int main(int argc, char **argv) {
-	TestSort(BubbleSort);
+	//TestSort(BubbleSort);
 	TestSort(SelectionSort);
 	TestSort(InsertionSort);
 	TestSort(MergeSort);
