@@ -1,3 +1,5 @@
+set.seed(8)
+
 #./Rscript fun.R fairness_mode scheduling_mode f_conflict_graph_in f_throughput_in f_routes_out
 
 #fairness_mode is a number:
@@ -21,6 +23,7 @@ station.channel.file <- options[3]
 data.file <- options[4]
 out.file <- options[5]
 
+
 #fairness.param <- 0
 #sche.param <- 0
 #data.file <- "thruput_example1.txt"
@@ -39,7 +42,10 @@ optf.gen <- function(mm, param){
 # e.g. v should be r1c1, r2c1, r3c1, .. , r1c2, r2c2 ,... 
   nc <- ncol(mm)
   p1 <- matrix(param,ncol=nc-1)
-  p2 <- cbind(p1, 1-p1)
+  p2.0 <- cbind(p1, 1-rowSums(p1))
+	#p2 <- p2.0
+	p2 <- matrix(0, ncol=nc, nrow=nrow(p2.0))
+	for(i in 1:nrow(p2))p2[i, which.max(p2.0[i,])[1]] <- 1
   #pen <- sum((p2-round(p2))^2)
   aa <- sapply(1:nc,function(i)p2[which(p2[,i]!=0),i] ,simplify=F)
   bb <- sapply(aa, function(i) i * (1/sum(i)),simplify=F)
@@ -60,7 +66,19 @@ mat.res <- cbind(mat.res0, 1-rowSums(mat.res0))
 v.res <- apply(mat.res, 1, function(i)which.max(i)[1])
 }
 	
-	
+
+cn.to.bs <- function(cn.name, n.car, cn.lev, cn.multi, station.channel, assign.multi){
+  bs.out <- rep(NA, n.car)
+  for(i in cn.lev){
+	  tmp <- which(cn.name==i)
+    if(length(tmp)>0){
+		    if(!i%in%cn.multi)bs.out[tmp] <- rep(names(station.channel)[which(station.channel==i)],length(tmp))
+	    else bs.out[tmp] <- assign.multi[tmp,i]
+			  }
+}
+out <- as.numeric(gsub("bs","",bs.out))
+}
+
 #############################
 # Read in data
 #############################
@@ -76,21 +94,13 @@ names(station.channel) <- paste0("bs", station.channel.in[,1])
 
 if(!identical(names(station.channel), colnames(data.in)))stop("base stations in two files don't match!")
 
-
-###################################
-# which max - independent of scheduling
-###################################
-if(sche.param==0){
-max.out <- apply(data.in,1,function(i)which.max(i)[1])
-tp.res.max <- abs(optf.gen(data.in, v.to.matv(max.out, n.car, n.bs)))
-message("overall throughput ", tp.res.max)
-out.v <- max.out
-}
 ###################################
 # deal with stations within channel
 # can take the best one in the channel
+# Then perform assignment across channels
+# since while multiple bs's share the same channel, only one of them can
+# send out packet!
 ###################################
-if(sche.param==1){ #optimizer
 
 channel.tab <- table(station.channel)
 channel.lev <- names(channel.tab)
@@ -124,6 +134,28 @@ initiate.assign <- matrix(0, nrow=n.car, ncol=n.channel)
 for(i in 1:n.car)initiate.assign[i,sample(1:n.channel,1)] <- 1
 
 
+
+
+###################################
+# which max - independent of scheduling
+###################################
+if(sche.param==0){
+max.cn.idx <- apply(mat.channel,1,function(i)which.max(i)[1])
+max.cn.name <- colnames(mat.channel)[max.cn.idx]
+max.out <- cn.to.bs(max.cn.name,n.car, channel.lev, cn.multi, 
+										station.channel, assign.multi)
+tp.res.max <- abs(optf.gen(mat.channel, v.to.matv(max.cn.idx, n.car, n.channel)))
+message("overall throughput ", tp.res.max)
+out.v <- max.out
+}
+
+
+##################################
+# optimizer
+##################################
+
+if(sche.param==1){ #optimizer
+
 ##################################
 # even thruput
 ##################################
@@ -136,16 +168,8 @@ v.res.even <- res.even$par
 even.cn.idx <- matv.to.v(res.even$par, n.car, n.channel)
 # convert channel names back to bs names
 even.cn.name <- colnames(mat.channel)[even.cn.idx]
-even.bs.out <- rep(NA, n.car)
-for(i in channel.lev){
-	tmp <- which(even.cn.name==i)
-	if(length(tmp)>0){
-	  if(!i%in%cn.multi)even.bs.out[tmp] <- rep(names(station.channel)[which(station.channel==i)],length(tmp))
-		else even.bs.out[tmp] <- assign.multi[tmp,i]
-	}
-}
-even.out <- as.numeric(gsub("bs","",even.bs.out))
-tp.res.even <- abs(optf.gen(data.in, v.to.matv(even.out, n.car, n.bs)))
+even.out <- cn.to.bs(even.cn.name,n.car, channel.lev, cn.multi, station.channel, assign.multi)
+tp.res.even <- abs(optf.gen(mat.channel, v.to.matv(even.cn.idx, n.car, n.channel))) # even time within channel so use channel matrix
 message("overall throughput ", tp.res.even)
 out.v <- even.out
 }
@@ -167,17 +191,20 @@ if(sche.param==4){ #search over all possible combinations
 
 
 list.for.expand <- vector("list", n.car)
-for(i in 1:n.car)list.for.expand[[i]] <- 1:n.bs
+for(i in 1:n.car)list.for.expand[[i]] <- 1:n.channel
 expand.tab <- expand.grid(list.for.expand)
 
 ################
 # even time
 ################
 if(fairness.param==0){
-all.expand.res <- apply(expand.tab, 1, function(i)abs(optf.gen(data.in, v.to.matv(i, n.car, n.bs))))
+all.expand.res <- apply(expand.tab, 1, function(i)abs(optf.gen(mat.channel, v.to.matv(i, n.car, n.channel))))
 which.max.expand <- which.max(all.expand.res)
-expand.out <- as.numeric(expand.tab[which.max.expand,])
-tp.res.expand <- abs(optf.gen(data.in, v.to.matv(expand.out, n.car, n.bs)))
+expand.cn.idx <- as.numeric(expand.tab[which.max.expand,])
+expand.cn.name <- colnames(mat.channel)[expand.cn.idx]
+expand.out <- cn.to.bs(expand.cn.name,n.car, channel.lev, cn.multi,
+										                    station.channel, assign.multi)
+tp.res.expand <- abs(optf.gen(mat.channel, v.to.matv(expand.cn.idx, n.car, n.channel)))
 message("overall throughput ", tp.res.expand)
 out.v <- expand.out
 }
